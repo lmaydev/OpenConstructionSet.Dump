@@ -19,7 +19,7 @@ var noGameFilesOption = new Option<bool>(["--no-game-files", "-G"], "Prevent loa
 
 var installationOption = new Option<InstallationType>(
     aliases: ["--installation", "-i"],
-    description: $"Installation to use. You can provide multiple values",
+    description: $"Installation to use.",
     getDefaultValue: () => InstallationType.Any);
 
 var rootCommand = new RootCommand("OpenConstructionSet Dump - output Kenshi game data to JSON")
