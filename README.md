@@ -1,21 +1,22 @@
-# OpenConstructionSet Dump
-CLI to dump a games mod data to json.
-By default loads base data files, active mods and writes to stdout.
+# OpenConstructionSet.Dump
 
-```
-ocs-dump --help
+A simple application that uses the [OpenConstructionSet](https://github.com/lmaydev/OpenConstructionSet) to load and dump your current [Kenshi](https://lofigames.com/) game data to JSON.
 
-Description:
-  OpenConstructionSet Dump - output Kenshi game data to JSON
+## Usage
 
-Usage:
-  ocs-dump [options]
+By default `ocs-dump` will save to `data.json` in the active directory.
+If an argument is passed it will be treated as the output file.
 
-Options:
-  -q, --no-stdout                           Suppress output to stdout.
-  -G, --no-game-files                       Prevent loading of base game data files.
-  -i, --installation <Any|Gog|Local|Steam>  Installation to use. You can provide multiple values [default: Any]
-  -o, --output-file <output-file>           Specify an output file.
-  --version                                 Show version information
-  -?, -h, --help                            Show help and usage information
-  ```
+## Example
+
+Save to `data.json`
+
+`ocs-dump`
+
+Save to custom file
+
+`ocs-dump custom.json`
+
+`ocs-dump output/data.json`
+
+`ocs-dump C:/output/data.json`
