@@ -89,7 +89,7 @@ async Task HandleAsync(bool noStdOut, bool noGameFiles, FileInfo? outputFile, In
 
     var context = await contextBuilder.BuildAsync(contextOptions);
 
-    var json = JsonSerializer.Serialize(context.Items.Select(i => new Item(i)), new JsonSerializerOptions() { TypeInfoResolver = SourceGenerationContext.Default, WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
+    var json = JsonSerializer.Serialize(context.Items.Select(i => new Item(i)), SourceGenerationContext.Default.IEnumerableItem);
 
     List<Task> tasks = [];
 
@@ -122,6 +122,9 @@ enum InstallationType { Any = 0, Steam = 1, Gog = 2, Local = 4 }
 [JsonSerializable(typeof(Vector3))]
 [JsonSerializable(typeof(Vector4))]
 [JsonSerializable(typeof(string))]
+[JsonSerializable(typeof(ItemType))]
+[JsonSerializable(typeof(ItemChangeType))]
+[JsonSourceGenerationOptions(WriteIndented = true, Converters = [typeof(JsonStringEnumConverter<ItemType>), typeof(JsonStringEnumConverter<ItemChangeType>)])]
 internal partial class SourceGenerationContext : JsonSerializerContext
 {
 }
