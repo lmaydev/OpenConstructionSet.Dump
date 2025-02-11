@@ -1,101 +1,127 @@
-﻿using OpenConstructionSet;
+﻿using Microsoft.Extensions.DependencyInjection;
+using OpenConstructionSet;
 using OpenConstructionSet.Data;
-using OpenConstructionSet.Models;
+using OpenConstructionSet.Installations;
+using OpenConstructionSet.Mods;
+using OpenConstructionSet.Mods.Context;
+using System.CommandLine;
+using System.CommandLine.Builder;
+using System.CommandLine.Invocation;
+using System.CommandLine.Parsing;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-var file = args.Length > 0 ? args[0] : "data.json";
+var outputFileOption = new Option<FileInfo>(aliases: ["--output-file", "-o"], description: "Specify an output file.");
 
-var installations = OcsDiscoveryService.Default.DiscoverAllInstallations();
+var noStdOption = new Option<bool>(aliases: ["--no-stdout", "-q"], description: "Suppress output to stdout.");
 
-Installation? installation = installations.Count switch
+var noGameFilesOption = new Option<bool>(["--no-game-files", "-G"], "Prevent loading of base game data files.");
+
+var installationOption = new Option<InstallationType>(
+    aliases: ["--installation", "-i"],
+    description: $"Installation to use. You can provide multiple values",
+    getDefaultValue: () => InstallationType.Any);
+
+var rootCommand = new RootCommand("OpenConstructionSet Dump - output Kenshi game data to JSON")
 {
-    0 => null,
-    1 => installations.Values.First(),
-    _ => PromptInstallationChoice()
+    noStdOption,
+    noGameFilesOption,
+    installationOption,
+    outputFileOption,
 };
 
-if (installation is null)
+rootCommand.SetHandler(HandleAsync, noStdOption, noGameFilesOption, outputFileOption, installationOption);
+
+var commandLineBuilder = new CommandLineBuilder(rootCommand);
+
+var parser = commandLineBuilder.AddMiddleware(ExceptionHandler).UseDefaults().Build();
+
+await parser.InvokeAsync(args);
+
+async Task ExceptionHandler(InvocationContext context, Func<InvocationContext, Task> next)
 {
-    Console.WriteLine("Failed to find game");
-    return 1;
+    try
+    {
+        await next(context);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        context.ExitCode = 1;
+    }
 }
 
-Console.WriteLine();
-
-Console.Write("Building data...");
-
-var options = new OcsDataContexOptions(Name: Guid.NewGuid().ToString(),
-                                       Installation: installation,
-                                       LoadGameFiles: ModLoadType.Base,
-                                       LoadEnabledMods: ModLoadType.Base,
-                                       ThrowIfMissing: false);
-
-var items = OcsDataContextBuilder.Default.Build(options).Items.Values.ToList();
-
-Console.WriteLine(" Complete");
-
-var jsonOptions = new JsonSerializerOptions
+async Task HandleAsync(bool noStdOut, bool noGameFiles, FileInfo? outputFile, InstallationType installationType)
 {
-    WriteIndented = true,
-    Converters = { new JsonStringEnumConverter() }
-};
-
-try
-{
-    Console.Write("Serializing to file...");
-
-    var directory = Path.GetDirectoryName(file);
-
-    if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
+    if (noStdOut && outputFile is null)
     {
-        Directory.CreateDirectory(directory);
+        Console.Error.WriteLine("Invalid options: If --no-stdout (-q) is set --output-file (-o) must be provided");
+        Environment.Exit(1);
     }
 
-    File.Delete(file);
+    var services = new ServiceCollection().AddOpenConstructionSet().BuildServiceProvider();
 
-    using var stream = File.Create(file);
+    IInstallation? installation = null;
 
-    JsonSerializer.Serialize(stream, items, jsonOptions);
+    var installationService = services.GetRequiredService<IInstallationService>();
+
+    switch (installationType)
+    {
+        case InstallationType.Any:
+            installationService.TryLocate(out installation);
+            break;
+        default:
+            installationService.TryLocate(installationType.ToString(), out installation);
+            break;
+    }
+
+    if (installation is null)
+    {
+        throw new InvalidOperationException($"Failed to locate install for option [{installationType}]");
+    }
+
+    var contextBuilder = services.GetRequiredService<IContextBuilder>();
+
+    var contextOptions = new ModContextOptions(Guid.NewGuid().ToString(), installation)
+    {
+        LoadGameFiles = noGameFiles ? ModLoadType.None : ModLoadType.Base,
+    };
+
+    var context = await contextBuilder.BuildAsync(contextOptions);
+
+    var json = JsonSerializer.Serialize(context.Items.Select(i => new Item(i)), new JsonSerializerOptions() { TypeInfoResolver = SourceGenerationContext.Default, WriteIndented = true, Converters = { new JsonStringEnumConverter() } });
+
+    List<Task> tasks = [];
+
+    if (!noStdOut)
+    {
+        tasks.Add(Console.Out.WriteLineAsync(json));
+    }
+
+    if (outputFile is not null)
+    {
+        if (outputFile.Directory is not null)
+        {
+            Directory.CreateDirectory(outputFile.Directory.FullName);
+        }
+
+        tasks.Add(File.WriteAllTextAsync(outputFile.FullName, json));
+    }
+
+    await Task.WhenAll(tasks);
 }
-catch (Exception ex)
+
+enum InstallationType { Any = 0, Steam = 1, Gog = 2, Local = 4 }
+
+[JsonSerializable(typeof(IEnumerable<Item>))]
+[JsonSerializable(typeof(Item))]
+[JsonSerializable(typeof(FileValue))]
+[JsonSerializable(typeof(bool))]
+[JsonSerializable(typeof(int))]
+[JsonSerializable(typeof(float))]
+[JsonSerializable(typeof(Vector3))]
+[JsonSerializable(typeof(Vector4))]
+[JsonSerializable(typeof(string))]
+internal partial class SourceGenerationContext : JsonSerializerContext
 {
-    Console.WriteLine(" Failed");
-
-    Console.WriteLine();
-    Console.WriteLine(ex.ToString());
-    return 1;
-}
-
-Console.WriteLine(" Complete");
-
-return 0;
-
-Installation PromptInstallationChoice()
-{
-    var keys = installations.Keys.ToList();
-
-    Console.WriteLine("Multiple installations found");
-
-    // Output names of found installations
-    for (var i = 0; i < keys.Count; i++)
-    {
-        Console.WriteLine($"{i + 1} - {keys[i]}");
-    }
-
-    Console.Write("Please select which to use: ");
-
-    // Read the users input defaulting to the first installation if invalid
-    if (!int.TryParse(Console.ReadLine() ?? "1", out var choice) || choice < 1 || choice > installations.Count)
-    {
-        choice = 1;
-    }
-
-    var selectedKey = keys[choice - 1];
-
-    Console.WriteLine();
-
-    Console.WriteLine($"Using the {selectedKey} installation");
-
-    return installations[selectedKey];
 }
